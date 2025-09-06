@@ -18,6 +18,7 @@ This repository includes a lightweight parser that splits a WhatsApp chat export
 - 📅 Ambiguous dates: Heuristic and `--date-order` option (`auto`/`dmy`/`mdy`/`ymd`).
 - 🖋️ LLM transcriber: Generates Markdown meeting documents (Title, Date, Meeting Time, Attendees, Agenda, Summary, Key Decisions, Action Items, Edited Transcript) with formal, respectful tone and removal of offensive/off-topic content.
 - 🔁 Resume support: Tracks per-day outcomes in a state file and can retry only failed days.
+ - 📊 Fun stats: Prints a lighthearted statistics summary (first/last meeting, total meetings, averages, busiest month, etc.).
 
 ## 🧰 Requirements
 
@@ -39,6 +40,7 @@ This repository includes a lightweight parser that splits a WhatsApp chat export
 │   ├── transcriber.py            # LLM-based transcript generator
 │   ├── transcribe_main.py        # CLI: python -m whatsapp2minutes.transcriber
 │   └── utils.py                  # shared helpers
+│   └── stats.py                  # fun statistics CLI
 ├── .env.example                  # template for local env
 ├── .env.local                    # your local overrides (git-ignored)
 ├── LICENSE
@@ -227,3 +229,38 @@ python -m whatsapp2minutes.transcriber --input-dir output/raw --output-dir outpu
 ## License
 
 See `LICENSE`.
+
+## 📊 Fun Stats
+
+Get a lighthearted snapshot of your committee’s activity:
+
+Command:
+
+```
+python -m whatsapp2minutes.stats --input-dir output/raw --format md
+```
+
+Options:
+- `--input-dir <dir>`: Directory with raw daily files. Default: `output/raw`.
+- `--format text|md`: Output format (plain text or Markdown). Default: `text`.
+- `--save <path>`: Save stats to a file instead of printing.
+
+Example output (text):
+
+```
+Committee vitality report for KU Math Seminar Committee (a.k.a. we do things):
+
+- First recorded meeting: 2023-02-01
+- Latest recorded meeting: 2025-09-06
+- Committee age: 948 days and counting
+- Total meetings: 312
+- On average: one meeting every 2.12 days
+- Average attendance: 3.1 people per meeting
+- Average chatter: 19.4 messages per meeting
+- Preferred rendezvous: around 12:15 (coffee optional)
+- Favorite weekday: Tuesday (statistically speaking)
+- Busiest month: 2024-11
+- Record attendance: 7 brave souls on 2025-07-24
+
+TL;DR: the committee is alive, caffeinated, and meeting with admirable regularity.
+```
