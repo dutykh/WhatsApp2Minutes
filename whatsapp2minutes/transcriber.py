@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from glob import glob
 from typing import Iterable, Optional, Tuple
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
 from .env import load_env, get_env
 from .utils import compact_committee_name
@@ -130,9 +131,34 @@ def _build_prompts(committee_name: str, date_str: str, meeting_time: Optional[st
 def _http_post_json(url: str, headers: dict, payload: dict, timeout: float = 60.0) -> dict:
     data = json.dumps(payload).encode("utf-8")
     req = Request(url, data=data, headers={"Content-Type": "application/json", **headers}, method="POST")
-    with urlopen(req, timeout=timeout) as resp:
-        body = resp.read()
-    return json.loads(body.decode("utf-8", errors="replace"))
+
+    class HttpRequestError(Exception):
+        def __init__(self, url: str, status: Optional[int], headers: Optional[dict], body: Optional[str], reason: Optional[str] = None):
+            snippet = (body or "").strip()
+            if len(snippet) > 800:
+                snippet = snippet[:800] + "..."
+            msg = f"HTTP request failed: url={url} status={status} reason={reason} body={snippet}"
+            super().__init__(msg)
+            self.url = url
+            self.status = status
+            self.headers = headers or {}
+            self.body = body
+            self.reason = reason
+
+    try:
+        with urlopen(req, timeout=timeout) as resp:
+            body = resp.read()
+            return json.loads(body.decode("utf-8", errors="replace"))
+    except HTTPError as e:
+        try:
+            err_body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            err_body = None
+        raise HttpRequestError(url=url, status=e.code, headers=dict(e.headers or {}), body=err_body, reason=getattr(e, 'reason', None))
+    except URLError as e:
+        raise HttpRequestError(url=url, status=None, headers=None, body=None, reason=str(getattr(e, 'reason', e)))
+    except Exception as e:
+        raise HttpRequestError(url=url, status=None, headers=None, body=None, reason=str(e))
 
 
 def _call_openai_chat(api_key: str, model: str, system: str, user: str, base_url: Optional[str] = None, temperature: float = 0.2, max_tokens: Optional[int] = None) -> str:

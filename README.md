@@ -142,7 +142,7 @@ Options:
   - `LLM_PROVIDER`, `LLM_MODEL`: Defaults for the transcriber.
   - API keys: `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`.
 
-- Precedence: Existing process environment → `.env` → `.env.local`.
+Precedence: Existing process environment → `.env.local` → `.env`.
 
 ## Examples
 
