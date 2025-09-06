@@ -3,14 +3,13 @@ Author: Dr. Denys Dutykh (Khalifa University of Science and Technology, Abu Dhab
 """
 
 import os
-from typing import Mapping
 
 
 def _strip_inline_comment(line: str) -> str:
     """Strip unquoted, unescaped trailing comments beginning with '#'.
 
     - Preserves '#' inside single or double quotes.
-    - Preserves escaped hashes (\#).
+    - Preserves escaped hashes (\\#).
     - Trims trailing whitespace after removing the comment.
     """
     out: list[str] = []

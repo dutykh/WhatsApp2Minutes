@@ -4,12 +4,11 @@ Author: Dr. Denys Dutykh (Khalifa University of Science and Technology, Abu Dhab
 
 import argparse
 import json
-import math
 import os
 import re
 import time
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from glob import glob
 from typing import Iterable, Optional, Tuple
 from urllib.request import Request, urlopen
@@ -107,7 +106,6 @@ def _build_prompts(committee_name: str, date_str: str, meeting_time: Optional[st
         "Remove irrelevant, off-topic, or offensive content. Preserve factual decisions, action items, and key discussion points. "
         "Do not invent facts; if uncertain, mark as 'Not recorded'."
     )
-    heading = "#" if format_ == "md" else ""
     participants_str = ", ".join(participants) if participants else "Not recorded"
     time_str = meeting_time or "Not recorded"
     user = (
@@ -248,6 +246,47 @@ def _truncate_for_prompt(text: str, max_chars: int) -> str:
     return head + tail
 
 
+# -------------------- State management --------------------
+
+def _utc_now_iso_z() -> str:
+    # Use timezone-aware UTC and render as Z-suffixed ISO 8601
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+def _load_state(path: Optional[str]) -> dict:
+    if not path:
+        return {"version": 1, "records": {}}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or "records" not in data:
+            return {"version": 1, "records": {}}
+        if not isinstance(data.get("records"), dict):
+            data["records"] = {}
+        return data
+    except FileNotFoundError:
+        return {"version": 1, "records": {}}
+    except Exception:
+        # Corrupt or unreadable state; start fresh but don't overwrite until saved.
+        return {"version": 1, "records": {}}
+
+
+def _save_state(path: Optional[str], state: dict) -> None:
+    if not path:
+        return
+    state = dict(state)
+    state.setdefault("version", 1)
+    try:
+        # Ensure parent directory exists if a directory component is present
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+    except Exception:
+        # Best-effort; do not crash transcript generation due to state write failures
+        pass
+
+
 def transcribe_file(
     raw_path: str,
     out_dir: str,
@@ -316,6 +355,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--overwrite", action="store_true", help="Overwrite existing transcript files.")
     p.add_argument("--dry-run", action="store_true", help="Do not call the API; just compute file names.")
     p.add_argument("--max-prompt-chars", dest="max_prompt_chars", type=int, default=120_000, help="Maximum characters from raw file to include in prompt.")
+    p.add_argument(
+        "--state-file",
+        dest="state_file",
+        default=None,
+        help=(
+            "Path to state file for resume support. "
+            "Defaults to <output-dir>/.transcriber_state.json"
+        ),
+    )
+    p.add_argument("--resume-failed", dest="resume_failed", action="store_true", help="Only retry days previously recorded as failed in the state file.")
     return p
 
 
@@ -333,10 +382,43 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         return 1
 
     os.makedirs(args.output_dir, exist_ok=True)
+    state_file = args.state_file or os.path.join(args.output_dir, ".transcriber_state.json")
+    state = _load_state(state_file)
+    records = state.setdefault("records", {})
     written = 0
     skipped = 0
+    compact_name = compact_committee_name(committee_name)
+    ext = "md" if args.fmt == "md" else "txt"
     for path in raw_files:
         try:
+            # Pre-compute output path and skip existing unless --overwrite
+            date_str = _sanitize_date_from_filename(path) or "Unknown"
+            out_name = f"{compact_name}-MeetingTranscript-{date_str}.{ext}"
+            out_path = os.path.join(args.output_dir, out_name)
+            # Resume-failed mode: only process entries marked as failed
+            rec = records.get(date_str)
+            force_process = bool(args.resume_failed and rec and rec.get("status") == "failed")
+            if args.resume_failed and not force_process:
+                print(f"Resume-failed: skipping {os.path.basename(out_path)} (not marked failed)")
+                skipped += 1
+                continue
+
+            if (not args.overwrite) and (not force_process) and os.path.exists(out_path):
+                print(f"Skipped existing {os.path.basename(out_path)}")
+                skipped += 1
+                if not args.dry_run:
+                    records[date_str] = {
+                        "input": path,
+                        "output": out_path,
+                        "status": "skipped",
+                        "error": None,
+                        "provider": provider,
+                        "model": model,
+                        "updated_at": _utc_now_iso_z(),
+                    }
+                    _save_state(state_file, state)
+                continue
+
             out_path = transcribe_file(
                 raw_path=path,
                 out_dir=args.output_dir,
@@ -344,25 +426,39 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 provider=provider,
                 model=model,
                 fmt=args.fmt,
-                overwrite=args.overwrite,
+                overwrite=(args.overwrite or force_process),
                 dry_run=args.dry_run,
                 max_prompt_chars=args.max_prompt_chars,
             )
-            if os.path.exists(out_path):
-                if args.overwrite:
-                    written += 1
-                else:
-                    # It may have been pre-existing
-                    if os.path.getmtime(out_path) >= os.path.getmtime(path):
-                        skipped += 1
-                    else:
-                        written += 1
             print(f"Processed {os.path.basename(path)} -> {os.path.basename(out_path)}")
+            written += 1
+            if not args.dry_run:
+                records[date_str] = {
+                    "input": path,
+                    "output": out_path,
+                    "status": "success",
+                    "error": None,
+                    "provider": provider,
+                    "model": model,
+                    "updated_at": _utc_now_iso_z(),
+                }
+                _save_state(state_file, state)
             # Light pacing to avoid rate limits when running for many days
             if not args.dry_run:
                 time.sleep(0.3)
         except Exception as e:
             print(f"Error processing {path}: {e}")
+            if not args.dry_run:
+                records[date_str] = {
+                    "input": path,
+                    "output": out_path,
+                    "status": "failed",
+                    "error": str(e),
+                    "provider": provider,
+                    "model": model,
+                    "updated_at": _utc_now_iso_z(),
+                }
+                _save_state(state_file, state)
     print(f"Done. Written/updated: {written}, skipped: {skipped}. Output: {args.output_dir}")
     return 0
 
