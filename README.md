@@ -1,246 +1,127 @@
-# 📜 WhatsApp2Minutes
+<!-- Author: Dr. Denys Dutykh (Mathematics Department, Khalifa University of Science and Technology, Abu Dhabi, UAE) -->
 
-Tools to convert WhatsApp chats into official meeting minutes and transcripts.
+# WhatsApp2Minutes: the minutes of a committee from its WhatsApp chat
 
-## 👤 Author
+A committee that works through a WhatsApp group keeps its decisions in the chat. The Python package `whatsapp2minutes` turns the text export of such a chat into official documents: a splitter writes one file per day, a transcriber asks a large language model to turn each day into a formal meeting document (title, date, time, attendees, agenda, summary, decisions, action items, edited transcript), and a third command summarises the activity of the committee over the whole chat. It uses the standard library of Python only; the calls to the language model go through `urllib`.
 
-**Dr. Denys Dutykh**
-Khalifa University of Science and Technology, Abu Dhabi, UAE
+The repository is at
 
-This repository includes a lightweight parser that splits a WhatsApp chat export into one file per day and a transcriber that turns each day into a formal meeting transcript using an LLM. No external dependencies are required; HTTP calls use Python's standard library.
+https://github.com/dutykh/WhatsApp2Minutes
 
-## ✨ Features (Current)
+## Quick start
 
-- Split chat by day: Creates `output/raw/<Prefix>-YYYY-MM-DD.txt` files, one per date.
-- Smart prefix: File prefix derives from `COMMITTEE_NAME` (e.g., "KU Math Seminar Committee" → `KUMathSeminarCommitteeMeeting`). `--prefix` flag can override.
-- WhatsApp formats: Supports both `date, time - ...` and `[date, time] ...` formats from WhatsApp exports.
-- 🧵 Multiline messages: Preserved and grouped under the date of their first line.
-- 📅 Ambiguous dates: Heuristic and `--date-order` option (`auto`/`dmy`/`mdy`/`ymd`).
-- 🖋️ LLM transcriber: Generates Markdown meeting documents (Title, Date, Meeting Time, Attendees, Agenda, Summary, Key Decisions, Action Items, Edited Transcript) with formal, respectful tone and removal of offensive/off-topic content.
-- 🔁 Resume support: Tracks per-day outcomes in a state file and can retry only failed days.
- - 📊 Fun stats: Prints a lighthearted statistics summary (first/last meeting, total meetings, averages, busiest month, etc.).
+Export the chat from WhatsApp as text (without media), save it as `input/ChatData.txt`, and run, from the root of the repository:
 
-## 🧰 Requirements
-
-- Python 3.10+ (uses modern typing and stdlib only)
-
-## 🧩 Project Layout
-
-```
-.
-├── input/
-│   └── ChatData.txt              # your WhatsApp export (default path)
-├── output/
-│   ├── raw/                      # generated daily files (created on first run)
-│   └── transcripts/              # generated Markdown transcripts
-├── whatsapp2minutes/
-│   ├── __main__.py               # CLI: python -m whatsapp2minutes (splitter)
-│   ├── env.py                    # simple .env loader
-│   ├── parser.py                 # daily splitter
-│   ├── transcriber.py            # LLM-based transcript generator
-│   ├── transcribe_main.py        # CLI: python -m whatsapp2minutes.transcriber
-│   └── utils.py                  # shared helpers
-│   └── stats.py                  # fun statistics CLI
-├── .env.example                  # template for local env
-├── .env.local                    # your local overrides (git-ignored)
-├── LICENSE
-└── README.md
+```bash
+python3 -m whatsapp2minutes --input input/ChatData.txt --output output
+python3 -m whatsapp2minutes.transcriber --dry-run
+export OPENAI_API_KEY=...        # or write it into .env.local
+python3 -m whatsapp2minutes.transcriber
 ```
 
-## 🚀 Quick Start
+The first command writes one file per day into `output/raw/`, the second shows which transcripts would be written without calling any model, and the last one writes them into `output/transcripts/`. The folders `input/` and `output/` are ignored by git, so that the chat and the minutes never enter the repository.
 
-1) Put your exported chat text at `input/ChatData.txt` (or pass a custom path with `--input`).
+The name of the committee gives the names of the files. Written into `.env.local` as
 
-2) Optionally set your committee name in `.env.local` (derived prefix):
-
-```
-COMMITTEE_NAME="KU Math Seminar Committee"
+```text
+COMMITTEE_NAME="Graduate Studies Committee"
 ```
 
-3) Run the splitter:
+it gives the daily files `GraduateStudiesCommitteeMeeting-YYYY-MM-DD.txt` and the transcripts `GraduateStudiesCommittee-MeetingTranscript-YYYY-MM-DD.md`. Without it, the splitter and the transcriber use the default name of the code, "KU Math Seminar Committee", and the statistics "Our Beloved Committee".
 
-```
-python -m whatsapp2minutes --input input/ChatData.txt --output output
-```
+## A small example
 
-4) Find results under `output/raw/` as:
+A chat exported as
 
-```
-KUMathSeminarCommitteeMeeting-YYYY-MM-DD.txt
-```
-
-## 🛠️ Splitter CLI Reference
-
-Command:
-
-```
-python -m whatsapp2minutes [options]
-```
-
-Options:
-
-- `-i, --input <path>`: Path to WhatsApp chat export (text). Default: `input/ChatData.txt`.
-- `-o, --output <dir>`: Output directory. Daily files go to `<dir>/raw`. Default: `output`.
-- `--prefix <name>`: Filename prefix. If omitted, derived from `COMMITTEE_NAME` (see Environment) as a compact form plus "Meeting".
-- `--encoding <name>`: Input/output encoding. Default: `utf-8`.
-- `--date-order <mode>`: Interpretation for ambiguous day/month in slash/dash dates. One of `auto` (default), `dmy`, `mdy`, `ymd`.
-
-Exit code: `0` on success.
-
-## 🖋️ Transcriber CLI Reference
-
-Command:
-
-```
-python -m whatsapp2minutes.transcriber [options]
-```
-
-What it does:
-- Reads each `*.txt` produced by the splitter under `output/raw/`.
-- Estimates meeting time using a message-time histogram (15-minute bins).
-- Infers attendees from message headers (deduplicated).
-- Builds a strict prompt to produce a formal, respectful document with required sections.
-- Calls your configured LLM and writes Markdown to `output/transcripts/CompactCommitteeName-MeetingTranscript-YYYY-MM-DD.md`.
-
-Options:
-- `--input-dir <dir>`: Directory with raw daily files. Default: `output/raw`.
-- `--output-dir <dir>`: Directory for transcripts. Default: `output/transcripts`.
-- `--provider <name>`: `openai`, `openrouter`, or `anthropic`. Defaults to `$LLM_PROVIDER` or `openai`.
-- `--model <name>`: Model name (e.g., `gpt-4o`). Defaults to `$LLM_MODEL`.
-- `--format md|txt`: Output format. Default: `md`.
-- `--overwrite`: Overwrite existing transcript files.
-- `--dry-run`: Compute filenames and print actions, but do not call an API.
- - `--max-prompt-chars <n>`: Limit raw content included in the prompt (default: 120000 chars).
- - `--state-file <path>`: Path to the state file used to track outcomes (default: `<output-dir>/.transcriber_state.json`).
- - `--resume-failed`: Retry only days previously recorded as failed in the state file.
-
-### 🔁 State & Resume
-
-- The transcriber maintains a JSON state file (default: `<output-dir>/.transcriber_state.json`) with per-day outcomes.
-- Each record includes: `input`, `output`, `status` (`success|failed|skipped`), `error` (if any), `provider`, `model`, and `updated_at` (UTC).
-- Resume only failed days:
-
-```
-python -m whatsapp2minutes.transcriber --resume-failed
-```
-
-- Use a custom state file location:
-
-```
-python -m whatsapp2minutes.transcriber --state-file output/.transcriber_state.json
-```
-
-## Parsing Details
-
-- Supported headers:
-  - `12/31/21, 9:00 PM - Name: Message`
-  - `[12/31/21, 9:00 PM] Name: Message`
-
-- Time formats: 24-hour (`09:00`) and 12-hour (`9:00 AM/PM`).
-
-- Date normalization:
-  - Converts to `YYYY-MM-DD`.
-  - Explicit `YYYY-MM-DD` / `YYYY/MM/DD` is honored directly.
-  - Two-digit years map to 19xx/20xx using a common pivot (00–68 → 2000–2068, else 1900–1999).
-  - When day/month is ambiguous, `--date-order` applies; `auto` uses a simple heuristic (e.g., values >12 disambiguate).
-
-- Multiline messages: Lines following a header line belong to the same message until the next header; all such lines are grouped under that date.
-
-- Preamble lines: Any lines before the first recognized message header are skipped.
-
-- Unparseable headers: If a header is detected but its date cannot be normalized, that header (and following lines until a valid header) are skipped. This is rare on clean exports; if you see unexpected gaps, check `--date-order` and encoding.
-
-## Output
-
-- Destination: `<output>/raw/` (created if missing).
-- Naming: `<Prefix>-YYYY-MM-DD.txt` where `<Prefix>` is either `--prefix` or derived from `COMMITTEE_NAME` (`KUMathSeminarCommitteeMeeting` by default).
-- Contents: Raw lines from the original export for that date, unchanged.
-
-## 🔐 Environment
-
-- Files:
-  - `.env` (optional, shared) and `.env.local` (local, git-ignored) are read automatically.
-  - See `.env.example` for a template.
-
-- Variables:
-  - `COMMITTEE_NAME`: Used to derive the output file prefix and transcript names. Example: `"KU Math Seminar Committee"` → `KUMathSeminarCommitteeMeeting` and `KUMathSeminarCommittee-...`.
-  - `LLM_PROVIDER`, `LLM_MODEL`: Defaults for the transcriber.
-  - API keys: `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`.
-
-Precedence: Existing process environment → `.env.local` → `.env`.
-
-## 📄 Examples
-
-Input snippet:
-
-```
-10/18/22, 09:00 - Alice: Agenda for today...
+```text
+10/18/22, 09:00 - Alice: Agenda for today: the seminar schedule
 10/18/22, 09:05 - Bob: Sounds good
+and a second line of Bob
 [10/19/22, 08:30] Carol: Attached the document
 Continuation line without header
+10/19/22, 08:40 - Alice: Thank you
 ```
 
-Resulting files:
+is split into `GraduateStudiesCommitteeMeeting-2022-10-18.txt`, holding the first three lines, and `GraduateStudiesCommitteeMeeting-2022-10-19.txt`, holding the last three, each line copied unchanged.
 
-```
-output/raw/KUMathSeminarCommitteeMeeting-2022-10-18.txt
-output/raw/KUMathSeminarCommitteeMeeting-2022-10-19.txt
-```
+## The splitter
 
-Transcriber (dry run):
-
-```
-python -m whatsapp2minutes.transcriber --input-dir output/raw --output-dir output/transcripts --dry-run
+```text
+python3 -m whatsapp2minutes [options]
 ```
 
-Transcriber (generate):
+| Option | Meaning |
+| --- | --- |
+| `-i PATH`, `--input PATH` | the chat export (default `input/ChatData.txt`) |
+| `-o DIR`, `--output DIR` | output folder; the daily files go to `DIR/raw` (default `output`) |
+| `--prefix NAME` | prefix of the file names (default: the compact name of the committee followed by `Meeting`) |
+| `--encoding NAME` | encoding of the input and output (default `utf-8`) |
+| `--date-order MODE` | reading of an ambiguous date: `auto` (default), `dmy`, `mdy` or `ymd` |
 
-```
-export OPENAI_API_KEY=...  # or set in .env.local
-python -m whatsapp2minutes.transcriber --input-dir output/raw --output-dir output/transcripts
-```
+Both forms of message header that WhatsApp writes are recognised, `12/31/21, 9:00 PM - Name: Message` and `[12/31/21, 9:00 PM] Name: Message`, with times on 24 or 12 hours. Dates are written as `YYYY-MM-DD`: a date already in that form (or `YYYY/MM/DD`) is kept, a two-digit year from 00 to 68 means 2000 to 2068 and any other means 1900 to 1999, and when day and month could be swapped, `--date-order` decides. The mode `auto` looks at each date alone: it reads a number above 12 as the day and, when both are 12 or less, puts the day first, so that a chat whose dates put the month first needs `--date-order mdy`. A message of several lines stays with the date of its first line; the lines before the first header are skipped, and so is a header whose date cannot be read, with the lines that follow it, until the next valid header.
 
-## 🧭 End-to-End
+## The transcriber
 
-1) Split the chat:
-
-```
-python -m whatsapp2minutes --input input/ChatData.txt --output output
-```
-
-2) Generate transcripts:
-
-```
-python -m whatsapp2minutes.transcriber --input-dir output/raw --output-dir output/transcripts
+```text
+python3 -m whatsapp2minutes.transcriber [options]
 ```
 
-## 🧩 Troubleshooting
+For each daily file, the transcriber estimates the time of the meeting as the middle of the quarter of an hour that holds the most messages, lists the attendees from the senders of the day, and asks the model for a formal and respectful document with fixed sections, without the private, offensive or off-topic messages. The text of the day, cut at `--max-prompt-chars` characters, is sent to the chosen provider: OpenAI (`OPENAI_API_KEY`, and `OPENAI_BASE_URL` for a compatible server), OpenRouter (`OPENROUTER_API_KEY`) or Anthropic (`ANTHROPIC_API_KEY`). Nothing is redacted before the text leaves the machine.
 
-- Wrong day/month split: Re-run with `--date-order dmy` or `--date-order mdy` to match your locale.
-- Encoding issues (weird characters): Try `--encoding iso-8859-1` (or your export’s encoding).
-- Missing days or too many files: Ensure your export is the plain text format and matches one of the supported header styles.
+| Option | Meaning |
+| --- | --- |
+| `--input-dir DIR` | the daily files (default `output/raw`) |
+| `--output-dir DIR` | the transcripts (default `output/transcripts`) |
+| `--provider NAME` | `openai`, `openrouter` or `anthropic` (default `$LLM_PROVIDER`, else `openai`) |
+| `--model NAME` | the model, such as `gpt-4o` (default `$LLM_MODEL`) |
+| `--format md\|txt` | Markdown (default) or plain text |
+| `--overwrite` | write over existing transcripts, which are otherwise skipped |
+| `--dry-run` | print the file names without calling any model |
+| `--max-prompt-chars N` | at most N characters of the day in the request (default 120000) |
+| `--state-file PATH` | the record of each day's outcome (default `OUTPUT-DIR/.transcriber_state.json`) |
+| `--resume-failed` | process again only the days recorded as failed |
 
-## 🗺️ Roadmap (Next)
+The record of outcomes keeps, for each day, the input and output files, the status (`success`, `failed` or `skipped`), the error if any, the provider, the model and the time of the update (UTC), so that `python3 -m whatsapp2minutes.transcriber --resume-failed` retries only what failed.
 
-- Add configurable templates for transcript sections and styling.
-- Add per-day metadata caching and resume/skip logic.
-- Optional redaction rules prior to LLM call.
+## The statistics
 
-## License
-
-See `LICENSE`.
-
-## 📊 Fun Stats
-
-Get a lighthearted snapshot of your committee’s activity:
-
-Command:
-
-```
-python -m whatsapp2minutes.stats --input-dir output/raw --format md
+```text
+python3 -m whatsapp2minutes.stats [--input-dir DIR] [--format text|md] [--save PATH]
 ```
 
-Options:
-- `--input-dir <dir>`: Directory with raw daily files. Default: `output/raw`.
-- `--format text|md`: Output format (plain text or Markdown). Default: `text`.
-- `--save <path>`: Save stats to a file instead of printing.
+The command reads the daily files (default `output/raw`) and prints, in a light-hearted tone, a short report on the life of the committee: the first and the latest day with messages, the number of days since the first one, the number of such days and the mean gap between them, the mean number of people writing and of messages on a day, the usual time of the meetings, the weekday and the month with the most meetings, and the day when the most people wrote. Each day with messages counts as one meeting. The option `--format md` gives the same report in Markdown, and `--save PATH` writes it into a file instead of printing it.
+
+## Settings
+
+The files `.env` and `.env.local` (both ignored by git) are read at the start, `.env.local` taking precedence over `.env`, and a variable already set in the environment over both; `.env.example` is a template. The variables are `COMMITTEE_NAME`, `LLM_PROVIDER`, `LLM_MODEL`, the three API keys and `OPENAI_BASE_URL`.
+
+## Contents
+
+| Path | Content |
+| --- | --- |
+| `whatsapp2minutes/__main__.py` | the command of the splitter, `python3 -m whatsapp2minutes` |
+| `whatsapp2minutes/parser.py` | the splitter itself |
+| `whatsapp2minutes/transcriber.py` | the transcriber and its command; `transcribe_main.py` is a second entry point to it |
+| `whatsapp2minutes/stats.py` | the statistics and their command |
+| `whatsapp2minutes/env.py`, `utils.py` | the reader of `.env` files and the compact name of the committee |
+| `.env.example` | the template of the settings |
+
+## Troubleshooting
+
+When the days come out wrong, the order of day and month is probably the other one: run again with `--date-order mdy` (month first, as in the United States) or `--date-order dmy`. Strange characters call for the encoding of the export, such as `--encoding iso-8859-1`. Missing days, or too many files, mean that the export is not the plain text one or that its headers have another form than the two above.
+
+## Requirements
+
+Python 3.10 or newer, with no other package; the transcriber needs network access and the key of one provider.
+
+## How to cite
+
+The file [`CITATION.cff`](CITATION.cff) describes the package for citation, and GitHub turns it into a reference, in APA or BibTeX, through the "Cite this repository" button of the repository page.
+
+## Licence
+
+The code is free software under the GNU General Public License, version 3; the text is in [LICENSE](LICENSE).
+
+## Author
+
+Dr. Denys Dutykh, Mathematics Department, Khalifa University of Science and Technology, Abu Dhabi, United Arab Emirates (https://www.denys-dutykh.com/).

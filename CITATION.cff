@@ -1,0 +1,27 @@
+# Dr. Denys Dutykh (Mathematics Department, Khalifa University of Science and Technology, Abu Dhabi, UAE)
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "WhatsApp2Minutes: the minutes of a committee from its WhatsApp chat"
+type: software
+authors:
+  - family-names: Dutykh
+    given-names: Denys
+    affiliation: "Khalifa University of Science and Technology"
+    orcid: "https://orcid.org/0000-0001-5247-2788"
+repository-code: "https://github.com/dutykh/WhatsApp2Minutes"
+license: GPL-3.0-only
+version: 1.0.0
+date-released: "2026-11-15"
+keywords:
+  - whatsapp
+  - chat-export
+  - meeting-minutes
+  - llm
+  - text-processing
+  - python
+abstract: >-
+  Python package, written with the standard library only, that turns the text export of a WhatsApp
+  group into the documents of a committee: one file per day, a formal meeting document for each
+  day written by a large language model (OpenAI, OpenRouter or Anthropic) with its attendees,
+  agenda, summary, decisions and action items, and a short report on the activity of the committee
+  over the whole chat.
